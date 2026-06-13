@@ -1,0 +1,10 @@
+STAALWAG SIGNAL [PC]
+Pair: XAUUSD
+Direction: LONG
+Entry: 3412.12
+SL: 3409.82
+TP: 3415.96
+Size: 0.43 lots (1% risk, fixed)
+Regime: BULL (confidence 0.40)
+Time: 2026-06-06 17:51:24 NZT
+Data freshness: 0s (limit 120s) - PASS

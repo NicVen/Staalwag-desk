@@ -1,0 +1,8 @@
+SELF-CHECK REPORT
+[PASS] heartbeat - all components alive: gates, intake, ledger, regime, signal
+[PASS] data_freshness - source age 0s (limit 120s)
+[PASS] sanity_levels - sides ok, RR 1.67 (min 1.0)
+[PASS] sanity_spread - spread 0.25 (limit 0.80)
+[PASS] regime_agreement - signal LONG vs regime BULL
+[PASS] duplicate_guard - no recent duplicate
+VERDICT: DISPATCH

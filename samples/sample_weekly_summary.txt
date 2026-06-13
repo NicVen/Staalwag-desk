@@ -1,0 +1,8 @@
+STAALWAG WEEKLY SUMMARY (all figures from ledger, append-only)
+Closed trades: 14
+Win rate: 85.7%
+Profit factor: 9.70
+Net P/L: 1950.02 USD
+Max drawdown: 120.71 USD
+Signals dispatched: 14 | blocked by self-check: 39 | faults raised: 0
+Risk per trade: 1% fixed. Daily loss cap: 2%. Max positions: 1.
