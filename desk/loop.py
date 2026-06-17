@@ -9,11 +9,17 @@ FAULT message on Telegram, never silence.
 Run: python -m desk.loop
 """
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import config, dispatch, gates, ledger, regime as regime_mod, selfcheck
 from . import signal as signal_mod
 from .intake import get_feed
+
+
+def _market_closed(now: datetime) -> bool:
+    """XAUUSD is closed Sat 22:00 UTC -> Sun 22:00 UTC (approx)."""
+    wd = now.astimezone(timezone.utc).weekday()  # 5=Sat, 6=Sun
+    return wd == 5 or (wd == 6 and now.astimezone(timezone.utc).hour < 22)
 
 
 def run_cycle(feed, conn, state) -> None:
@@ -92,10 +98,26 @@ def main():
     conn = ledger.connect()
     state = {"equity": 10000.0, "day_start_equity": 10000.0,
              "open_positions": 0, "recent_keys": {},
-             "day": datetime.now(config.NZT).date()}
+             "day": datetime.now(config.NZT).date(),
+             "market_closed_notified": False}
     while True:
         started = time.monotonic()
-        run_cycle(feed, conn, state)
+        now = datetime.now(config.NZT)
+        if _market_closed(now):
+            if not state["market_closed_notified"]:
+                dispatch.send("STAALWAG [%s]\nMarket closed (weekend). "
+                              "Desk monitoring. Next open: Sun ~22:00 UTC."
+                              % config.DESK_LABEL)
+                state["market_closed_notified"] = True
+            # sleep longer on weekends - no point hammering every 2 min
+            time.sleep(1800)
+            continue
+        else:
+            if state["market_closed_notified"]:
+                dispatch.send("STAALWAG [%s]\nMarket open. Desk active."
+                              % config.DESK_LABEL)
+            state["market_closed_notified"] = False
+            run_cycle(feed, conn, state)
         time.sleep(max(0.0, config.CYCLE_SECONDS - (time.monotonic() - started)))
 
 
