@@ -32,6 +32,7 @@ def run_cycle(feed, conn, state) -> None:
     if state["day"] != now.date():
         state["day"] = now.date()
         state["day_start_equity"] = state["equity"]
+        state["api_cap_notified"] = False   # new day, new credits
 
     quote = sig = reg = None
     try:
@@ -43,6 +44,18 @@ def run_cycle(feed, conn, state) -> None:
             sig = signal_mod.generate(quote, reg)
             heartbeats["signal"] = True
     except Exception as e:
+        reason = str(e)
+        # API daily cap hit: notify once then sleep until next UTC day
+        if "run out of API credits for the day" in reason:
+            if not state.get("api_cap_notified"):
+                dispatch.send("STAALWAG [%s]\nAPI daily credit cap reached. "
+                              "Desk sleeping until midnight UTC. "
+                              "No further alerts until then."
+                              % config.DESK_LABEL)
+                state["api_cap_notified"] = True
+                ledger.log_fault(conn, reason, True, now)
+            # sleep 1 hour at a time; day rollover clears the flag
+            return
         reason = "Pipeline exception: %r" % e
         ok = dispatch.send_fault(reason)
         ledger.log_fault(conn, reason, ok, now)
