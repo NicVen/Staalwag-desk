@@ -11,7 +11,7 @@ Run: python -m desk.loop
 import time
 from datetime import datetime, timezone
 
-from . import config, dispatch, gates, ledger, regime as regime_mod, selfcheck
+from . import commander, config, dispatch, gates, ledger, regime as regime_mod, selfcheck
 from . import signal as signal_mod
 from .intake import get_feed
 
@@ -33,6 +33,7 @@ def run_cycle(feed, conn, state) -> None:
         state["day"] = now.date()
         state["day_start_equity"] = state["equity"]
         state["api_cap_notified"] = False   # new day, new credits
+        state["signals_today"] = 0
 
     quote = sig = reg = None
     try:
@@ -99,10 +100,12 @@ def run_cycle(feed, conn, state) -> None:
         return
 
     msg = sig.message(decision.lots, quote.age_seconds(now))
-    sent = dispatch.send(msg + "\n\n" + report.text())
+    sent = dispatch.send(msg)
     ledger.log_signal(conn, sig, decision.lots, report, dispatched=sent)
     state["recent_keys"][sig.key()] = now
-    state["open_positions"] += 1   # outcome tracker decrements on close (port point)
+    state["open_positions"] += 1
+    state["signals_today"] = state.get("signals_today", 0) + 1
+    state["last_selfcheck"] = report.text()
 
 
 def main():
@@ -113,7 +116,10 @@ def main():
     state = {"equity": 10000.0, "day_start_equity": 10000.0,
              "open_positions": 0, "recent_keys": {},
              "day": datetime.now(config.NZT).date(),
-             "market_closed_notified": False}
+             "market_closed_notified": False,
+             "last_selfcheck": None,
+             "signals_today": 0}
+    commander.start(state)
     while True:
         started = time.monotonic()
         now = datetime.now(config.NZT)
