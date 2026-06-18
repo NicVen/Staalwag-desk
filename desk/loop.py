@@ -43,6 +43,7 @@ def run_cycle(feed, conn, state) -> None:
             heartbeats["regime"] = True
             sig = signal_mod.generate(quote, reg)
             heartbeats["signal"] = True
+            state["regime_fault_notified"] = False  # regime healthy, reset flag
     except Exception as e:
         reason = str(e)
         # API daily cap hit: notify once then sleep until next UTC day
@@ -62,10 +63,10 @@ def run_cycle(feed, conn, state) -> None:
         return
 
     if reg is None:
-        # not enough history is a fault condition, not silence
-        reason = "Regime model has insufficient history this cycle."
-        ok = dispatch.send_fault(reason)
-        ledger.log_fault(conn, reason, ok, now)
+        if not state.get("regime_fault_notified"):
+            dispatch.send_fault("Regime model has insufficient history. "
+                                "Desk warming up - no further alerts until resolved.")
+            state["regime_fault_notified"] = True
         return
 
     heartbeats["gates"] = True
