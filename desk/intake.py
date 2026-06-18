@@ -147,8 +147,10 @@ class WebFeed:
 
     def get_quote(self) -> Quote:
         import time as _time
-        # refresh 15-min history at most every 10 minutes (rate-limit budget)
-        if _time.time() - self.last_hist > 600 or len(self.closes) < 100:
+        # Budget: 800 req/day free tier.
+        # 1 price req every 120s = 720/day. No room for history refresh each cycle.
+        # Refresh history once every 6 hours (4x/day = 4 req). Total: 724/day.
+        if _time.time() - self.last_hist > 21600 or len(self.closes) < 100:
             series = self._get("time_series", interval="15min", outputsize=400)
             values = series.get("values", [])
             if len(values) < 100:
