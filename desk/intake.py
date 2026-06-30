@@ -115,59 +115,56 @@ class Mt5Feed:
 
 
 class WebFeed:
-    """Railway-compatible XAUUSD feed via Twelve Data REST API.
+    """Railway-compatible XAUUSD feed via Yahoo's chart API.
 
-    Free tier: 8 requests/min, 800/day. One quote + one history refresh per
-    cycle = keep CYCLE_SECONDS >= 120 on Railway to stay inside the day cap.
-    Requires TWELVEDATA_API_KEY in environment.
+    FREE, no API key, no daily credit cap -> the desk runs 24h and produces
+    signals as they form (replaces Twelve Data, which capped at 800/day and
+    slept the desk mid-session). Pulls 15-min gold history each refresh.
+    Symbol override via env GOLD_YF_SYMBOL (default XAUUSD=X; fallback GC=F).
     """
 
-    SYMBOL = "XAU/USD"
+    import os as _os
+    PRIMARY  = _os.getenv("GOLD_YF_SYMBOL", "GC=F")   # COMEX gold; Yahoo has no spot XAUUSD=X
+    FALLBACK = "XAUUSD=X"
+    HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    URL = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1mo&interval=15m"
 
     def __init__(self):
-        import truststore
-        truststore.inject_into_ssl()
-        import httpx
-        self.httpx = httpx
-        if not config.TWELVEDATA_API_KEY:
-            raise RuntimeError("TWELVEDATA_API_KEY missing - get a free key at "
-                               "twelvedata.com and set it in the environment.")
-        self.closes: list[float] = []
-        self.last_hist = 0.0
+        try:
+            import truststore
+            truststore.inject_into_ssl()
+        except Exception:
+            pass
+        import requests
+        self.session = requests.Session()
+        self.session.headers.update(self.HDR)
 
-    def _get(self, endpoint: str, **params):
-        params["apikey"] = config.TWELVEDATA_API_KEY
-        params["symbol"] = self.SYMBOL
-        r = self.httpx.get("https://api.twelvedata.com/" + endpoint,
-                           params=params, timeout=20)
-        data = r.json()
-        if isinstance(data, dict) and data.get("status") == "error":
-            raise RuntimeError("TwelveData error: %s" % data.get("message"))
-        return data
+    def _fetch(self, sym: str) -> list[float]:
+        r = self.session.get(self.URL.format(sym=sym), timeout=20)
+        j = r.json()
+        res = j["chart"]["result"][0]
+        q = res["indicators"]["quote"][0]
+        return [float(c) for c in q["close"] if c is not None]
 
     def get_quote(self) -> Quote:
-        import time as _time
-        # Budget: 800 req/day free tier.
-        # 1 price req every 120s = 720/day. No room for history refresh each cycle.
-        # Refresh history once every 6 hours (4x/day = 4 req). Total: 724/day.
-        if _time.time() - self.last_hist > 21600 or len(self.closes) < 100:
-            series = self._get("time_series", interval="15min", outputsize=400)
-            values = series.get("values", [])
-            if len(values) < 100:
-                raise RuntimeError("TwelveData returned insufficient history")
-            self.closes = [float(v["close"]) for v in reversed(values)]
-            self.last_hist = _time.time()
+        closes = []
+        try:
+            closes = self._fetch(self.PRIMARY)
+        except Exception as e:
+            print("[WEBFEED] %s failed (%s); trying %s" % (self.PRIMARY, e, self.FALLBACK))
+        if len(closes) < 100:
+            closes = self._fetch(self.FALLBACK)
+        if len(closes) < 100:
+            raise RuntimeError("Yahoo returned insufficient gold history (%d)" % len(closes))
 
-        q = self._get("price")
-        price = float(q["price"])
-        # REST quote has no bid/ask; synthesize a conservative spread so the
+        price = closes[-1]
+        # Chart API has no bid/ask; synthesize a conservative spread so the
         # spread sanity check still constrains dispatch.
         spread = 0.40
         now = datetime.now(config.NZT)
-        closes = self.closes[:-1] + [price]
         return Quote(pair=config.PAIR, bid=round(price - spread / 2, 2),
                      ask=round(price + spread / 2, 2),
-                     ts=now, source="twelvedata", history=closes)
+                     ts=now, source="yahoo", history=closes)
 
 
 def get_feed():
