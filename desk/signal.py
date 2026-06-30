@@ -40,12 +40,12 @@ class Signal:
                 "Entry: %.2f\n"
                 "SL: %.2f\n"
                 "TP: %.2f\n"
-                "Size: %.2f lots (1%% risk, fixed)\n"
+                "Risk: your call — size to your OWN risk tolerance\n"
                 "Regime: %s (confidence %.2f)\n"
                 "Time: %s NZT\n"
                 "Data freshness: %.0fs (limit %ds) - PASS"
                 % (self.pair, self.direction, self.entry, self.sl, self.tp,
-                   lots, self.regime, self.confidence,
+                   self.regime, self.confidence,
                    self.ts.strftime("%Y-%m-%d %H:%M:%S"),
                    freshness_s, config.DATA_FRESHNESS_MAX_S))
 
