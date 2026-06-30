@@ -26,6 +26,7 @@ FEED = os.getenv("FEED", "paper" if PAPER_MODE else "mt5").lower()
 TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY", "")
 CYCLE_SECONDS = int(os.getenv("CYCLE_SECONDS", "60"))
 DESK_LABEL = os.getenv("DESK_LABEL", "PC")   # shows in messages: PC / RAILWAY
+STYLE = os.getenv("STYLE", "Scalp")          # trade horizon shown on signals (15m engine)
 
 # Self-check thresholds
 DATA_FRESHNESS_MAX_S = 120          # discard data older than this

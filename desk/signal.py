@@ -34,6 +34,7 @@ class Signal:
 
     def message(self, lots: float, freshness_s: float) -> str:
         return ("STAALWAG SIGNAL\n"
+                "Style: %s\n" % config.STYLE +
                 "Pair: %s\n"
                 "Direction: %s\n"
                 "Entry: %.2f\n"
