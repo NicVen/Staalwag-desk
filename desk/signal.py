@@ -33,7 +33,7 @@ class Signal:
         return "%s:%s" % (self.pair, self.direction)
 
     def message(self, lots: float, freshness_s: float) -> str:
-        return ("STAALWAG SIGNAL [%s]\n" % config.DESK_LABEL +
+        return ("STAALWAG SIGNAL\n"
                 "Pair: %s\n"
                 "Direction: %s\n"
                 "Entry: %.2f\n"
