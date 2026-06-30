@@ -50,10 +50,8 @@ def run_cycle(feed, conn, state) -> None:
         # API daily cap hit: notify once then sleep until next UTC day
         if "run out of API credits for the day" in reason:
             if not state.get("api_cap_notified"):
-                dispatch.send("STAALWAG [%s]\nAPI daily credit cap reached. "
-                              "Desk sleeping until midnight UTC. "
-                              "No further alerts until then."
-                              % config.DESK_LABEL)
+                print("[STAALWAG:ops] API daily credit cap reached; sleeping until "
+                      "midnight UTC.")   # log only, not the public channel
                 state["api_cap_notified"] = True
                 ledger.log_fault(conn, reason, True, now)
             # sleep 1 hour at a time; day rollover clears the flag

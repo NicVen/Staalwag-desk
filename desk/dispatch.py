@@ -36,5 +36,6 @@ def send(text: str) -> bool:
 
 
 def send_fault(reason: str) -> bool:
-    return send("STAALWAG FAULT [%s]\n%s\nNo trading signal this cycle. "
-                "Desk continues monitoring." % (config.DESK_LABEL, reason))
+    # Faults are operational noise — log to Railway only, never the public channel.
+    print("[DISPATCH:fault] %s" % reason)
+    return True
