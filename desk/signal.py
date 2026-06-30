@@ -42,12 +42,10 @@ class Signal:
                 "TP: %.2f\n"
                 "Risk: your call — size to your OWN risk tolerance\n"
                 "Regime: %s (confidence %.2f)\n"
-                "Time: %s NZT\n"
-                "Data freshness: %.0fs (limit %ds) - PASS"
+                "Time: %s NZT"
                 % (self.pair, self.direction, self.entry, self.sl, self.tp,
                    self.regime, self.confidence,
-                   self.ts.strftime("%Y-%m-%d %H:%M:%S"),
-                   freshness_s, config.DATA_FRESHNESS_MAX_S))
+                   self.ts.strftime("%Y-%m-%d %H:%M:%S")))
 
 
 def _atr_proxy(closes: list[float]) -> float:
