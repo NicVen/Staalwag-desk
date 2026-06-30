@@ -123,17 +123,14 @@ def main():
         now = datetime.now(config.NZT)
         if _market_closed(now):
             if not state["market_closed_notified"]:
-                dispatch.send("STAALWAG [%s]\nMarket closed (weekend). "
-                              "Desk monitoring. Next open: Sun ~22:00 UTC."
-                              % config.DESK_LABEL)
+                print("[STAALWAG:ops] market closed (weekend); monitoring.")
                 state["market_closed_notified"] = True
             # sleep longer on weekends - no point hammering every 2 min
             time.sleep(1800)
             continue
         else:
             if state["market_closed_notified"]:
-                dispatch.send("STAALWAG [%s]\nMarket open. Desk active."
-                              % config.DESK_LABEL)
+                print("[STAALWAG:ops] market open; desk active.")
             state["market_closed_notified"] = False
             run_cycle(feed, conn, state)
         time.sleep(max(0.0, config.CYCLE_SECONDS - (time.monotonic() - started)))
