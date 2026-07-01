@@ -19,7 +19,11 @@ PAIR = "XAUUSD"
 
 # Operational (not risk) settings
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+# VIP = full signals + management alerts (paid, private). PUBLIC = free teasers.
+# Back-compat: if VIP_CHAT_ID unset, fall back to TELEGRAM_CHAT_ID.
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+VIP_CHAT_ID    = os.getenv("VIP_CHAT_ID", TELEGRAM_CHAT_ID)
+PUBLIC_CHAT_ID = os.getenv("PUBLIC_CHAT_ID", "")   # empty = no free teasers posted
 PAPER_MODE = os.getenv("PAPER_MODE", "true").lower() == "true"
 # FEED: paper | mt5 | web. Default keeps old PAPER_MODE behaviour.
 FEED = os.getenv("FEED", "paper" if PAPER_MODE else "mt5").lower()

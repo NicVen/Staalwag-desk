@@ -11,7 +11,7 @@ Run: python -m desk.loop
 import time
 from datetime import datetime, timezone
 
-from . import commander, config, dispatch, gates, ledger, regime as regime_mod, selfcheck
+from . import commander, config, dispatch, gates, ledger, manage, regime as regime_mod, selfcheck
 from . import signal as signal_mod
 from .intake import get_feed
 
@@ -39,6 +39,9 @@ def run_cycle(feed, conn, state) -> None:
     try:
         quote = feed.get_quote()
         heartbeats["intake"] = True
+        # VIP trade management: watch any open trade vs live price every cycle
+        for _a in manage.check(quote.mid, config.PAIR):
+            dispatch.send_vip(_a)
         reg = regime_mod.assess(quote.history)
         if reg is not None:
             heartbeats["regime"] = True
@@ -98,8 +101,11 @@ def run_cycle(feed, conn, state) -> None:
         return
 
     msg = sig.message(decision.lots, quote.age_seconds(now))
-    sent = dispatch.send(msg)
+    sent = dispatch.send_vip(msg)        # full signal -> paid VIP channel
+    dispatch.send_public(sig.teaser())   # direction-only teaser -> free channel
     ledger.log_signal(conn, sig, decision.lots, report, dispatched=sent)
+    if sent:
+        manage.open_trade(sig)           # start VIP trade-management tracking
     state["recent_keys"][sig.key()] = now
     state["open_positions"] += 1
     state["signals_today"] = state.get("signals_today", 0) + 1
