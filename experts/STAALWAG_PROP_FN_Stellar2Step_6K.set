@@ -1,0 +1,40 @@
+; ==========================================================
+; STAALWAG PROP  preset
+; FundedNext Stellar 2-Step  |  $6,000  |  CFD / MT5
+; Firm walls: 5% daily, 10% static max.
+; THIS PRESET self-imposes tighter stops: 4% daily, 8% max,
+; leaving a 1% / 2% cushion to recover before the firm breach.
+; Load: attach STAALWAG_PROP -> F7 -> Load -> pick this file.
+; PHASE 2: change InpProfitTargetPct from 8.0 to 5.0.
+; ==========================================================
+
+; --- Custom profile so we can tighten the loss limits ---
+InpPropFirm=9
+InpPhase=1
+InpInitialBalance=6000.0
+InpStopAtTarget=true
+
+; --- Manual rules (PF_CUSTOM) ---
+InpProfitTargetPct=8.0
+InpMaxLossPct=8.0
+InpMaxLossGuardPct=7.5
+InpDailyLossPct=4.0
+InpDailyGuardPct=3.7
+InpTrailingMaxDD=false
+
+; --- Daily profit bank: ratchets gains + spreads across 5-day min ---
+InpDailyProfitCap=1.5
+
+; --- Consistency: 2-Step has none ---
+InpConsistencyPct=0.0
+
+; --- Spike guard: skip news/fixing-flow shocks ---
+InpSpikeATRmult=4.0
+InpSpikeCoolBars=3
+
+; --- Sizing: small risk, under firm 3% max-risk ---
+InpAutoLot=true
+InpRiskPercent=0.3
+
+; --- Session filter on ---
+InpUseSession=true

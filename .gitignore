@@ -1,4 +1,7 @@
 .env
 .env.railway
 *.db
+Lib/
+Scripts/
 __pycache__/
+*.ex5
