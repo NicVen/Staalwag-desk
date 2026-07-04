@@ -121,8 +121,8 @@ input group "âââ Scalp Session Window âââ"
 input double InpSpikeATRmult    = 4.0;   // SPIKE GUARD: freeze a pair's entries when its candle range >= this x ATR (0=off). Blocks news/fixing-flow spikes the calendar can't see.
 input int    InpSpikeCoolBars   = 3;     // SPIKE GUARD: bars to stay frozen after a spike
 input bool   InpUseSession      = true;  // Restrict trading to the scalp window
-input int    InpSessStartHour   = 18;    // Local window open hour (24h)
-input int    InpSessEndHour     = 22;    // Local window close hour (24h)
+input int    InpSessStartHour   = 19;    // Local open (NZ 19:00 = London open 07:00 UTC)
+input int    InpSessEndHour     = 9;     // Local close (NZ 09:00 = NY close 21:00 UTC). Wraps midnight = London+NY.
 input int    InpServerGMTOffset = 3;     // Broker/server GMT offset (most MT5 = GMT+3)
 input int    InpLocalGMTOffset  = 12;    // Your local GMT offset (NZ = 12 std / 13 DST)
 input bool   InpFridayCutoff    = true;  // Skip late-Friday entries

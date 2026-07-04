@@ -115,7 +115,8 @@ input double   InpTrailR3Mult    = 1.0;     // Trail ATR mult after 3R profit (l
 input group "âââ Sessions âââ"
 input double   InpSpikeATRmult   = 4.0;     // SPIKE GUARD: freeze entries when a candle range >= this x ATR (0=off). Blocks news/fixing-flow spikes the calendar can't see.
 input int      InpSpikeCoolBars  = 3;       // SPIKE GUARD: bars to stay frozen after a spike
-input bool     InpUseSession     = true;    // Session filter
+input bool     InpUseSession     = true;    // Session filter (London + NY)
+input int      InpServerGMTOffset = 3;      // Broker server GMT offset (MetaQuotes-Demo summer=3). Converts server->UTC so hours below are TRUE UTC.
 input int      InpLDNOpen        = 7;       // Session open (UTC) â 07:00 UTC = NZ 19:00
 input int      InpLDNClose       = 21;      // Session close (UTC) â 21:00 UTC = NZ 09:00 (covers your morning)
 input int      InpNYOpen         = 13;      // (unused when InpUseNY=false)
@@ -1375,7 +1376,7 @@ bool IsInSession()
    if(!InpUseSession) return true;
    MqlDateTime t;
    TimeToStruct(TimeCurrent(), t);
-   int h = t.hour;
+   int h = ((t.hour - InpServerGMTOffset) % 24 + 24) % 24;   // server -> UTC
    bool inLDN = (h >= InpLDNOpen && h < InpLDNClose);
    bool inNY  = InpUseNY && (h >= InpNYOpen && h < InpNYClose);
    return inLDN || inNY;

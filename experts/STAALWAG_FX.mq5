@@ -117,9 +117,10 @@ input double   InpTrailR3Mult    = 0.8;     // Trail ATR mult after 3R (locks ha
 input group "âââ Sessions âââ"
 input double   InpSpikeATRmult   = 4.0;     // SPIKE GUARD: freeze entries when a candle range >= this x ATR (0=off). Blocks news/fixing-flow spikes the calendar can't see.
 input int      InpSpikeCoolBars  = 3;       // SPIKE GUARD: bars to stay frozen after a spike
-input bool     InpUseSession     = true;    // Session filter (pair-aware)
+input bool     InpUseSession     = true;    // Session filter (London + NY)
+input int      InpServerGMTOffset = 3;      // Broker server GMT offset (MetaQuotes-Demo summer=3). Converts server->UTC so hours below are TRUE UTC.
 input int      InpAsiaOpen       = 0;       // Asia open hour (UTC)
-input int      InpAsiaClose      = 7;       // Asia close hour (UTC)
+input int      InpAsiaClose      = 0;       // Asia DISABLED (0=0 -> never). London+NY only.
 input int      InpLDNOpen        = 7;       // London open hour (UTC)
 input int      InpLDNClose       = 16;      // London close hour (UTC)
 input int      InpNYOpen         = 13;      // NY open hour (UTC)
@@ -1318,7 +1319,7 @@ bool IsInSession()
    if(!InpUseSession) return true;
    MqlDateTime t;
    TimeToStruct(TimeCurrent(), t);
-   int h = t.hour;
+   int h = ((t.hour - InpServerGMTOffset) % 24 + 24) % 24;   // server -> UTC
    bool inAsia = g_sessAsia && (h >= InpAsiaOpen && h < InpAsiaClose);
    bool inLDN  = g_sessLDN  && (h >= InpLDNOpen  && h < InpLDNClose);
    bool inNY   = g_sessNY   && (h >= InpNYOpen    && h < InpNYClose);
