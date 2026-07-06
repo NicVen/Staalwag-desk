@@ -19,7 +19,18 @@ def _conn():
     c.execute("""CREATE TABLE IF NOT EXISTS open_trades(
         pair TEXT PRIMARY KEY, direction TEXT, entry REAL, sl REAL, tp REAL,
         be INT DEFAULT 0)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS closed_trades(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
+        pair TEXT, direction TEXT, entry REAL, exit REAL,
+        result TEXT, pips REAL)""")
     return c
+
+
+def _log_close(c, pair, direction, entry, exit_, result, pips):
+    from datetime import datetime
+    c.execute("INSERT INTO closed_trades(ts,pair,direction,entry,exit,result,pips) "
+              "VALUES(?,?,?,?,?,?,?)",
+              (datetime.utcnow().isoformat(), pair, direction, entry, exit_, result, pips))
 
 
 def open_trade(sig) -> None:
@@ -50,12 +61,14 @@ def check(price: float, pair: str = None) -> list[str]:
         PIP = 0.1  # XAUUSD
         if sl_hit:
             pips = -round(abs(entry - sl) / PIP, 1)
+            _log_close(c, tpair, direction, entry, sl, "LOSS", pips)
             alerts.append(_alert(tpair, direction,
                 "SL hit — trade closed (%+.1f pips). Capital protected, on to the next." % pips))
             c.execute("DELETE FROM open_trades WHERE pair=?", (tpair,))
             continue
         if reached(tp):
             pips = round(abs(tp - entry) / PIP, 1)
+            _log_close(c, tpair, direction, entry, tp, "WIN", pips)
             alerts.append(_alert(tpair, direction,
                 "TP hit 🎯 — target reached (+%.1f pips), close it. Trade DONE." % pips))
             c.execute("DELETE FROM open_trades WHERE pair=?", (tpair,))
