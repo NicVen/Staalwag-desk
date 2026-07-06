@@ -47,14 +47,17 @@ def check(price: float, pair: str = None) -> list[str]:
         reached = (lambda lvl: price >= lvl) if longd else (lambda lvl: price <= lvl)
         sl_hit = (price <= sl) if longd else (price >= sl)
 
+        PIP = 0.1  # XAUUSD
         if sl_hit:
+            pips = -round(abs(entry - sl) / PIP, 1)
             alerts.append(_alert(tpair, direction,
-                "SL hit — trade closed. Capital protected, on to the next."))
+                "SL hit — trade closed (%+.1f pips). Capital protected, on to the next." % pips))
             c.execute("DELETE FROM open_trades WHERE pair=?", (tpair,))
             continue
         if reached(tp):
+            pips = round(abs(tp - entry) / PIP, 1)
             alerts.append(_alert(tpair, direction,
-                "TP hit 🎯 — target reached, close it. Trade DONE."))
+                "TP hit 🎯 — target reached (+%.1f pips), close it. Trade DONE." % pips))
             c.execute("DELETE FROM open_trades WHERE pair=?", (tpair,))
             continue
         if not be and reached(half):
