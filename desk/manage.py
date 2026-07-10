@@ -11,14 +11,22 @@ State lives in SQLite (same DB as the ledger) so alerts survive Railway
 restarts. One open trade at a time (single symbol).
 """
 import sqlite3
+from datetime import datetime, timezone
 from . import config
+
+MAX_HOLD_HOURS = 12   # a scalp that hasn't hit TP/SL by now exits at market —
+                      # so one stuck trade can NEVER freeze the desk again.
 
 
 def _conn():
     c = sqlite3.connect(str(config.LEDGER_PATH))
     c.execute("""CREATE TABLE IF NOT EXISTS open_trades(
         pair TEXT PRIMARY KEY, direction TEXT, entry REAL, sl REAL, tp REAL,
-        be INT DEFAULT 0)""")
+        be INT DEFAULT 0, opened TEXT)""")
+    try:                       # migrate older DBs that predate the opened column
+        c.execute("ALTER TABLE open_trades ADD COLUMN opened TEXT")
+    except sqlite3.OperationalError:
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS closed_trades(
         id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
         pair TEXT, direction TEXT, entry REAL, exit REAL,
@@ -35,9 +43,10 @@ def _log_close(c, pair, direction, entry, exit_, result, pips):
 
 def open_trade(sig) -> None:
     c = _conn()
-    c.execute("INSERT OR REPLACE INTO open_trades(pair,direction,entry,sl,tp,be) "
-              "VALUES(?,?,?,?,?,0)",
-              (sig.pair, sig.direction, sig.entry, sig.sl, sig.tp))
+    c.execute("INSERT OR REPLACE INTO open_trades(pair,direction,entry,sl,tp,be,opened) "
+              "VALUES(?,?,?,?,?,0,?)",
+              (sig.pair, sig.direction, sig.entry, sig.sl, sig.tp,
+               datetime.now(timezone.utc).isoformat()))
     c.commit(); c.close()
 
 
@@ -49,8 +58,9 @@ def check(price: float, pair: str = None) -> list[str]:
     """Compare live price to the open trade's levels; return VIP alerts."""
     c = _conn()
     alerts = []
-    rows = c.execute("SELECT pair,direction,entry,sl,tp,be FROM open_trades").fetchall()
-    for tpair, direction, entry, sl, tp, be in rows:
+    rows = c.execute("SELECT pair,direction,entry,sl,tp,be,opened FROM open_trades").fetchall()
+    now = datetime.now(timezone.utc)
+    for tpair, direction, entry, sl, tp, be, opened in rows:
         if pair is not None and tpair != pair:
             continue
         longd = direction in ("LONG", "BUY")
@@ -59,6 +69,23 @@ def check(price: float, pair: str = None) -> list[str]:
         sl_hit = (price <= sl) if longd else (price >= sl)
 
         PIP = 0.1  # XAUUSD
+
+        # TIME STOP: no open-time (legacy stuck row) or held too long -> exit at
+        # market so the desk is never frozen at max-positions again.
+        try:
+            age_h = (now - datetime.fromisoformat(opened)).total_seconds() / 3600 if opened else 1e9
+        except Exception:
+            age_h = 1e9
+        if age_h > MAX_HOLD_HOURS:
+            sign = 1 if longd else -1
+            pips = round((price - entry) / PIP * sign, 1)
+            res = "WIN" if pips > 0 else ("LOSS" if pips < 0 else "BREAKEVEN")
+            _log_close(c, tpair, direction, entry, price, res, pips)
+            alerts.append(_alert(tpair, direction,
+                "Time exit — %d h with no target hit, closed at market (%+.1f pips)." % (int(MAX_HOLD_HOURS), pips)))
+            c.execute("DELETE FROM open_trades WHERE pair=?", (tpair,))
+            continue
+
         if sl_hit:
             pips = -round(abs(entry - sl) / PIP, 1)
             _log_close(c, tpair, direction, entry, sl, "LOSS", pips)
