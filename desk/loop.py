@@ -11,7 +11,7 @@ Run: python -m desk.loop
 import time
 from datetime import datetime, timezone
 
-from . import commander, config, dispatch, gates, ledger, manage, regime as regime_mod, selfcheck
+from . import commander, config, dispatch, gates, ledger, manage, paper, regime as regime_mod, selfcheck
 from . import signal as signal_mod
 from .intake import get_feed
 
@@ -42,6 +42,11 @@ def run_cycle(feed, conn, state) -> None:
         # VIP trade management: watch any open trade vs live price every cycle
         for _a in manage.check(quote.mid, config.PAIR):
             dispatch.send_vip(_a)
+        if state.get("paper"):
+            try:   # paper test of the candidate rule -> owner's chat only
+                state["paper"].tick(quote.mid, now)
+            except Exception as e:
+                print("[PAPER] skipped: %r" % e)
         reg = regime_mod.assess(quote.history)
         if reg is not None:
             heartbeats["regime"] = True
@@ -123,6 +128,8 @@ def main():
              "market_closed_notified": False,
              "last_selfcheck": None,
              "signals_today": 0}
+    state["paper"] = paper.start(conn)
+    print("Paper test: %s" % ("on -> %s" % paper.PAPER_CHAT_ID if state["paper"] else "off"))
     commander.start(state)
     while True:
         started = time.monotonic()
