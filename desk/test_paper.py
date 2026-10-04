@@ -82,5 +82,29 @@ class Live(unittest.TestCase):
         self.assertIn("PAPER TEST", self.sent[-1])
 
 
+class LiveChannel(unittest.TestCase):
+    """CHANNEL_RULE=new: real calls in the channel, results in closed_trades (pips)."""
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.sent = []
+        self.p = paper.PaperTest(self.conn, self.sent.append, session=object(), live=True)
+        self.now = datetime(2026, 10, 5, 10, tzinfo=timezone.utc)
+        self.conn.execute(
+            "INSERT INTO paper_trades (rule, opened_ts, bar_ts, direction, entry, sl, tp) "
+            "VALUES (?,?,?,?,?,?,?)", (paper.RULE, self.now.isoformat(), 1, "SELL", 4000, 4020, 3940))
+
+    def test_win_lands_in_channel_record_in_pips(self):
+        self.p.tick(3939, self.now)
+        row = self.conn.execute("SELECT direction, result, pips FROM closed_trades").fetchone()
+        self.assertEqual(row, ("SELL", "WIN", 600.0))
+        self.assertIn("STAALWAG GOLD #1 closed", self.sent[-1])
+        self.assertNotIn("PAPER", self.sent[-1])
+
+    def test_loss_in_pips(self):
+        self.p.tick(4021, self.now)
+        self.assertEqual(self.conn.execute("SELECT result, pips FROM closed_trades").fetchone(),
+                         ("LOSS", -200.0))
+
+
 if __name__ == "__main__":
     unittest.main()

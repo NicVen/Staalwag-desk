@@ -19,6 +19,11 @@ from datetime import datetime, timedelta, timezone
 from . import config
 
 PAPER_CHAT_ID = os.getenv("PAPER_CHAT_ID", "")
+# CHANNEL_RULE=new: this rule posts real calls to the channel (VIP_CHAT_ID)
+# instead of the old one, and its results also land in closed_trades (pips)
+# so HQ's channel record carries on. Default "old": paper test only.
+CHANNEL_RULE = os.getenv("CHANNEL_RULE", "old").lower()
+PIP = 0.1   # XAUUSD
 LOOK, STOP_ATR, TARGET_R, MAX_HOLD_H = 20, 2.0, 3.0, 48
 GOAL = 30          # calls before a verdict
 PASS_PF = 1.3
@@ -103,9 +108,14 @@ def _day(t):
 # ---------- live plumbing ----------
 
 class PaperTest:
-    def __init__(self, conn, send, session=None):
-        self.conn, self.send = conn, send
+    def __init__(self, conn, send, session=None, live=False):
+        self.conn, self.send, self.live = conn, send, live
         conn.executescript(SCHEMA)
+        if live:
+            conn.execute("""CREATE TABLE IF NOT EXISTS closed_trades(
+                id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
+                pair TEXT, direction TEXT, entry REAL, exit REAL,
+                result TEXT, pips REAL)""")
         if session is None:
             import requests
             session = requests.Session()
@@ -154,6 +164,12 @@ class PaperTest:
         result = "WIN" if r > 0 else "LOSS" if r < 0 else "BREAKEVEN"
         self.conn.execute("UPDATE paper_trades SET closed_ts=?, exit=?, result=?, r=? WHERE id=?",
                           (now.isoformat(), exit_px, result, r, tid))
+        if self.live:   # the channel's own record (HQ reads it in pips)
+            self.conn.execute(
+                "INSERT INTO closed_trades(ts,pair,direction,entry,exit,result,pips) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (now.astimezone(timezone.utc).replace(tzinfo=None).isoformat(), config.PAIR,
+                 side, entry, exit_px, result, round(d * (exit_px - entry) / PIP, 1)))
         self.conn.commit()
         n, w, pf, tot = score([x[0] for x in self.conn.execute(
             "SELECT r FROM paper_trades WHERE r IS NOT NULL AND rule=?", (RULE,))])
@@ -161,9 +177,10 @@ class PaperTest:
         if n >= GOAL:
             verdict = ("\nVERDICT: PASSED (PF %.2f >= %.1f)" % (pf, PASS_PF) if pf >= PASS_PF
                        else "\nVERDICT: NOT PASSED (PF %.2f < %.1f)" % (pf, PASS_PF))
-        self.send("PAPER TEST #%d closed: %s %s at %.2f\nResult: %+.2fR (%s)\n"
+        head = "STAALWAG GOLD #%d closed" % tid if self.live else "PAPER TEST #%d closed" % tid
+        self.send("%s: %s %s at %.2f\nResult: %+.2fR (%s)\n"
                   "Score so far: %d/%d calls, %d wins, PF %.2f, total %+.1fR%s"
-                  % (tid, side, why, exit_px, r, result, n, GOAL, w, pf, tot, verdict))
+                  % (head, side, why, exit_px, r, result, n, GOAL, w, pf, tot, verdict))
 
     def _scan(self, price, now):
         # one look per hour, 2 min after the hour so the closed bar is published
@@ -188,15 +205,31 @@ class PaperTest:
             "INSERT INTO paper_trades (rule, opened_ts, bar_ts, direction, entry, sl, tp) "
             "VALUES (?,?,?,?,?,?,?)", (RULE, now.isoformat(), st.bar_ts, side, entry, sl, tp))
         self.conn.commit()
+        if self.live:
+            self.send("STAALWAG GOLD SIGNAL #%d\n%s XAUUSD (spot) at %.2f\n"
+                      "SL %.2f (%.0f pips) | TP %.2f (%.0f pips)\n"
+                      "Exit at market after 48h if neither is hit.\n"
+                      "New rule in its live test: call %d of %d, every result posted.\n"
+                      "Risk: your call. Not financial advice."
+                      % (cur.lastrowid, side, entry, sl, abs(entry - sl) / PIP, tp,
+                         abs(tp - entry) / PIP, self._count() + 1, GOAL))
+            return
         self.send("PAPER TEST #%d - NOT A SIGNAL, do not trade\n"
                   "Gold (spot) %s at %.2f\nSL %.2f | TP %.2f (3R) | out after 48h\n"
                   "Rule: 20h breakout + 200h trend + daily trend. Testing to %d calls."
                   % (cur.lastrowid, side, entry, sl, tp, GOAL))
 
+    def _count(self):
+        return self.conn.execute("SELECT COUNT(*) FROM paper_trades WHERE r IS NOT NULL "
+                                 "AND rule=?", (RULE,)).fetchone()[0]
+
 
 def start(conn):
-    """PaperTest or None when PAPER_CHAT_ID is unset."""
+    """The new rule: live in the channel (CHANNEL_RULE=new), paper test in the
+    owner's chat (PAPER_CHAT_ID), or None."""
+    from . import dispatch
+    if CHANNEL_RULE == "new":
+        return PaperTest(conn, dispatch.send_vip, live=True)
     if not PAPER_CHAT_ID:
         return None
-    from . import dispatch
     return PaperTest(conn, lambda text: dispatch._post(PAPER_CHAT_ID, text))
