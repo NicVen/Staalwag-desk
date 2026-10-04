@@ -86,6 +86,15 @@ def check(price: float, pair: str = None) -> list[str]:
             c.execute("DELETE FROM open_trades WHERE pair=?", (tpair,))
             continue
 
+        # Subscribers were told to move SL to breakeven at halfway, so after
+        # that a return to entry is a 0-pip close, not the original stop.
+        back_to_entry = (price <= entry) if longd else (price >= entry)
+        if be and back_to_entry:
+            _log_close(c, tpair, direction, entry, entry, "BREAKEVEN", 0.0)
+            alerts.append(_alert(tpair, direction,
+                "Back to entry — closed at breakeven (0 pips). No loss."))
+            c.execute("DELETE FROM open_trades WHERE pair=?", (tpair,))
+            continue
         if sl_hit:
             pips = -round(abs(entry - sl) / PIP, 1)
             _log_close(c, tpair, direction, entry, sl, "LOSS", pips)
