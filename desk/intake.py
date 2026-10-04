@@ -146,12 +146,45 @@ class WebFeed:
         q = res["indicators"]["quote"][0]
         return [float(c) for c in q["close"] if c is not None]
 
+    SPOT_URL = "https://api.gold-api.com/price/XAU"   # free, no key
+    BASIS_MAX_AGE_S = 2 * 3600
+
+    _basis = None          # futures - spot, last good reading
+    _basis_ts = 0.0
+
+    def _spot(self) -> float:
+        r = self.session.get(self.SPOT_URL, timeout=15)
+        return float(r.json()["price"])
+
+    def _to_spot(self, closes: list[float]) -> list[float]:
+        """Shift futures closes onto spot gold, the price subscribers trade.
+
+        COMEX futures sit $10-40 above spot (more than a whole stop), so posted
+        Entry/SL/TP must be spot levels. The shape of the history is the same,
+        only the level moves. No fresh spot reading -> no quote -> no signal.
+        """
+        import time
+        try:
+            spot = self._spot()
+            basis = closes[-1] - spot
+            if abs(basis) > closes[-1] * 0.03:
+                raise RuntimeError("spot %.2f vs futures %.2f looks wrong" % (spot, closes[-1]))
+            WebFeed._basis, WebFeed._basis_ts = basis, time.time()
+        except Exception as e:
+            if WebFeed._basis is None or time.time() - WebFeed._basis_ts > self.BASIS_MAX_AGE_S:
+                raise RuntimeError("no spot gold price (%s); not posting futures levels" % e)
+            print("[WEBFEED] spot failed (%s); using basis from %.0f min ago"
+                  % (e, (time.time() - WebFeed._basis_ts) / 60))
+        return [round(c - WebFeed._basis, 2) for c in closes]
+
     def get_quote(self) -> Quote:
         closes = []
         try:
             closes = self._fetch(self.PRIMARY)
         except Exception as e:
             print("[WEBFEED] %s failed (%s); trying %s" % (self.PRIMARY, e, self.FALLBACK))
+        if len(closes) >= 100 and self.PRIMARY.endswith("=F"):
+            closes = self._to_spot(closes)
         if len(closes) < 100:
             closes = self._fetch(self.FALLBACK)
         if len(closes) < 100:
@@ -164,7 +197,7 @@ class WebFeed:
         now = datetime.now(config.NZT)
         return Quote(pair=config.PAIR, bid=round(price - spread / 2, 2),
                      ask=round(price + spread / 2, 2),
-                     ts=now, source="yahoo", history=closes)
+                     ts=now, source="yahoo-spot", history=closes)
 
 
 def get_feed():
