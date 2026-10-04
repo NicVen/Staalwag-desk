@@ -5,6 +5,9 @@ Rule (won the strategy lab, PF 1.36 over 2 years, both halves > 1.3):
   on each completed 1h bar, close breaks the prior 20-bar high (low),
   close is above (below) the 1h EMA200, and the daily EMA50 is above (below)
   the daily EMA200 -> long (short). Stop 2x ATR14, target 3R, out after 48h.
+  Signals from bars that start in US hours (08:00-13:59 New York) are skipped:
+  gold rises overnight and drifts down in US hours (20 years of data), and the
+  lab scored the rule PF 1.46 without them vs 1.36 with them.
 
 It never posts to the channel and never touches the live rule. It keeps its own
 table (paper_trades) in the desk ledger so every result, losses included, is
@@ -15,6 +18,7 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from . import config
 
@@ -39,6 +43,14 @@ CREATE TABLE IF NOT EXISTS paper_trades (
 );
 """
 RULE = "breakout+trend+daily"
+NY = ZoneInfo("America/New_York")
+# SKIP_US_HOURS=false turns the US-hours skip off (default on).
+SKIP_US_HOURS = os.getenv("SKIP_US_HOURS", "true").lower() != "false"
+
+
+def us_hours(t):
+    """True if a bar starting at t starts in US hours (08:00-13:59 New York)."""
+    return 8 <= datetime.fromtimestamp(t, NY).hour < 14
 
 
 # ---------- pure rule (tested in test_paper.py) ----------
@@ -88,7 +100,7 @@ def check(hourly, daily):
         d = 1
     elif last["c"] < lo and last["c"] < e200 and trend == -1:
         d = -1
-    if not d:
+    if not d or (SKIP_US_HOURS and us_hours(last["t"])):
         return None
     return Setup(d, STOP_ATR * atr(hourly), last["t"])
 

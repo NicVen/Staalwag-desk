@@ -42,6 +42,15 @@ class Rule(unittest.TestCase):
         # a day that has not closed yet must not count
         self.assertEqual(paper.daily_trend(d, datetime.fromtimestamp(0, tz=timezone.utc).date()), 0)
 
+    def test_skips_signals_in_us_hours(self):
+        # 2026-10-05 15:00 UTC = 11:00 New York: US hours, no trade
+        t_us = int(datetime(2026, 10, 5, 15, tzinfo=timezone.utc).timestamp())
+        h = bars([2000.0] * 239 + [2010.0], start=t_us - 239 * 3600)
+        self.assertIsNone(paper.check(h, uptrend_daily()))
+        # 20:00 UTC = 16:00 New York: outside US hours, trade
+        h = bars([2000.0] * 239 + [2010.0], start=t_us + 5 * 3600 - 239 * 3600)
+        self.assertEqual(paper.check(h, uptrend_daily()).direction, 1)
+
     def test_score(self):
         n, w, pf, tot = paper.score([3.0, -1.0, -1.0])
         self.assertEqual((n, w), (3, 1))
