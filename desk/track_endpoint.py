@@ -44,10 +44,19 @@ def _payload() -> dict:
                                        "closed_ts", "result", "r"), r)))
         except Exception:
             pass
+        swing = []   # oil/crypto daily-trend paper test (owner's chat only), in R
+        try:
+            for r in conn.execute("SELECT symbol, signal_t, direction, entry, sl, exit_t, "
+                                  "exit, result, r FROM swing_trades ORDER BY id"):
+                swing.append(dict(zip(("symbol", "signal_t", "direction", "entry", "sl",
+                                       "exit_t", "exit", "result", "r"), r)))
+        except Exception:
+            pass
     finally:
         conn.close()
     return {"product": "STAALWAG Gold", "pair": getattr(config, "PAIR", "XAUUSD"),
-            "unit": "pips", "signals": n, "outcomes": rows, "paper_test": paper}
+            "unit": "pips", "signals": n, "outcomes": rows, "paper_test": paper,
+            "swing_test": swing}
 
 
 def _latest_signal() -> dict:

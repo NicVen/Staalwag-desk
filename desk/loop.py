@@ -11,7 +11,7 @@ Run: python -m desk.loop
 import time
 from datetime import datetime, timezone
 
-from . import commander, config, dispatch, gates, ledger, manage, paper, regime as regime_mod, selfcheck
+from . import commander, config, dispatch, gates, ledger, manage, paper, regime as regime_mod, selfcheck, swing
 from . import signal as signal_mod
 from .intake import get_feed
 
@@ -47,6 +47,11 @@ def run_cycle(feed, conn, state) -> None:
                 state["paper"].tick(quote.mid, now)
             except Exception as e:
                 print("[PAPER] skipped: %r" % e)
+        if state.get("swing"):
+            try:   # oil/crypto daily-trend paper test -> owner's chat only
+                state["swing"].tick(now)
+            except Exception as e:
+                print("[SWING] skipped: %r" % e)
         if paper.CHANNEL_RULE == "new":
             return   # the new rule owns the channel; the old rule stays silent
         reg = regime_mod.assess(quote.history)
@@ -131,6 +136,7 @@ def main():
              "last_selfcheck": None,
              "signals_today": 0}
     state["paper"] = paper.start(conn)
+    state["swing"] = swing.start(conn)
     print("Channel rule: %s. Paper test: %s" % (paper.CHANNEL_RULE,
           "on" if state["paper"] and paper.CHANNEL_RULE != "new" else "off"))
     commander.start(state)
