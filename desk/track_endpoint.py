@@ -36,10 +36,18 @@ def _payload() -> dict:
                              "pips": r[1], "ts": r[2], "equity_after": None})
         except Exception:
             pass
+        paper = []   # candidate rule's paper test (owner's chat only), in R
+        try:
+            for r in conn.execute("SELECT rule, opened_ts, direction, entry, sl, tp, "
+                                  "closed_ts, result, r FROM paper_trades ORDER BY id"):
+                paper.append(dict(zip(("rule", "ts", "direction", "entry", "sl", "tp",
+                                       "closed_ts", "result", "r"), r)))
+        except Exception:
+            pass
     finally:
         conn.close()
     return {"product": "STAALWAG Gold", "pair": getattr(config, "PAIR", "XAUUSD"),
-            "unit": "pips", "signals": n, "outcomes": rows}
+            "unit": "pips", "signals": n, "outcomes": rows, "paper_test": paper}
 
 
 def _latest_signal() -> dict:
