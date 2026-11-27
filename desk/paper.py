@@ -9,6 +9,14 @@ Rule (won the strategy lab, PF 1.36 over 2 years, both halves > 1.3):
   gold rises overnight and drifts down in US hours (20 years of data), and the
   lab scored the rule PF 1.46 without them vs 1.36 with them.
 
+Second rule, "tokyo" (added 27 Nov 2026, lab PF 1.50 over 2 years, halves
+1.48 / 1.53, last 6 months 2.27 on 48 trades): mark the high/low of the
+00:00-01:59 UTC hours. The first 1h close outside that range between 02:00 and
+07:59 UTC is the day's only break; trade it only in the daily-trend direction.
+Stop at the other side of the range, target 1.5R, out at 12:00 UTC. Both rules
+run side by side (one open trade per rule) and share the channel's 30-call
+count. TOKYO_RULE=false turns it off.
+
 It never posts to the channel and never touches the live rule. It keeps its own
 table (paper_trades) in the desk ledger so every result, losses included, is
 kept. Off unless PAPER_CHAT_ID is set. Any error here is logged and skipped:
@@ -105,6 +113,45 @@ def check(hourly, daily):
     return Setup(d, STOP_ATR * atr(hourly), last["t"])
 
 
+TOKYO = "tokyo-range+daily"
+TOKYO_RULE = os.getenv("TOKYO_RULE", "true").lower() != "false"
+TOKYO_START, TOKYO_END, TOKYO_EXIT_H, TOKYO_TARGET_R = 2, 8, 12, 1.5
+RULES = (RULE, TOKYO)
+NAMES = {RULE: "20h breakout + daily trend", TOKYO: "Tokyo range breakout + daily trend"}
+
+
+def _hour(t):
+    return datetime.fromtimestamp(t, tz=timezone.utc).hour
+
+
+def check_tokyo(hourly, daily):
+    """Tokyo range breakout on completed 1h bars. Only the FIRST close outside
+    the 00:00-01:59 UTC range (02:00-07:59 UTC) counts; it trades only with the
+    daily trend. Returns Setup or None."""
+    if len(hourly) < 3:
+        return None
+    last = hourly[-1]
+    day, h = _day(last["t"]), _hour(last["t"])
+    if not (TOKYO_START <= h < TOKYO_END):
+        return None
+    today = [b for b in hourly[-12:] if _day(b["t"]) == day]
+    rng = [b for b in today if _hour(b["t"]) < TOKYO_START]
+    if len(rng) < 2:
+        return None
+    hi, lo = max(b["h"] for b in rng), min(b["l"] for b in rng)
+    if hi <= lo:
+        return None
+    for b in today:                      # an earlier break today used up the day
+        if b is last:
+            break
+        if TOKYO_START <= _hour(b["t"]) and (b["c"] > hi or b["c"] < lo):
+            return None
+    d = 1 if last["c"] > hi else -1 if last["c"] < lo else 0
+    if not d or d != daily_trend(daily, day):
+        return None
+    return Setup(d, last["c"] - lo if d > 0 else hi - last["c"], last["t"])
+
+
 def score(rows):
     """rows = closed R values. -> (n, wins, pf, total_r)."""
     gain = sum(r for r in rows if r > 0)
@@ -145,22 +192,29 @@ class PaperTest:
                 out.append({"t": t, "o": o, "h": h, "l": l, "c": c})
         return out
 
-    def _open(self):
+    def _open(self, rule):
         return self.conn.execute(
-            "SELECT id, direction, entry, sl, tp, opened_ts FROM paper_trades "
-            "WHERE closed_ts IS NULL ORDER BY id DESC LIMIT 1").fetchone()
+            "SELECT id, direction, entry, sl, tp, opened_ts, rule FROM paper_trades "
+            "WHERE closed_ts IS NULL AND rule=? ORDER BY id DESC LIMIT 1", (rule,)).fetchone()
+
+    def _rules(self):
+        return RULES if TOKYO_RULE else (RULE,)
 
     def tick(self, price, now=None):
         """price = current spot mid. Manage the open paper trade, then look for a new one."""
         now = now or datetime.now(config.NZT)
-        row = self._open()
-        if row:
-            self._manage(row, price, now)
-            return
-        self._scan(price, now)
+        free = []
+        for rule in self._rules():
+            row = self._open(rule)
+            if row:
+                self._manage(row, price, now)
+            else:
+                free.append(rule)
+        if free:
+            self._scan(price, now, free)
 
     def _manage(self, row, price, now):
-        tid, side, entry, sl, tp, opened = row
+        tid, side, entry, sl, tp, opened, rule = row
         d = 1 if side == "BUY" else -1
         risk = abs(entry - sl)
         why = None
@@ -168,7 +222,9 @@ class PaperTest:
             why, exit_px = "STOP", sl
         elif d * (price - tp) >= 0:
             why, exit_px = "TARGET", tp
-        elif now - datetime.fromisoformat(opened) >= timedelta(hours=MAX_HOLD_H):
+        elif rule == TOKYO and now >= _tokyo_exit(opened):
+            why, exit_px = "12:00 UTC TIME-STOP", price
+        elif rule != TOKYO and now - datetime.fromisoformat(opened) >= timedelta(hours=MAX_HOLD_H):
             why, exit_px = "48H TIME-STOP", price
         if not why:
             return
@@ -184,17 +240,19 @@ class PaperTest:
                  side, entry, exit_px, result, round(d * (exit_px - entry) / PIP, 1)))
         self.conn.commit()
         n, w, pf, tot = score([x[0] for x in self.conn.execute(
-            "SELECT r FROM paper_trades WHERE r IS NOT NULL AND rule=?", (RULE,))])
+            "SELECT r FROM paper_trades WHERE r IS NOT NULL AND rule IN (?,?)", RULES)])
         verdict = ""
         if n >= GOAL:
             verdict = ("\nVERDICT: PASSED (PF %.2f >= %.1f)" % (pf, PASS_PF) if pf >= PASS_PF
                        else "\nVERDICT: NOT PASSED (PF %.2f < %.1f)" % (pf, PASS_PF))
         head = "STAALWAG GOLD #%d closed" % tid if self.live else "PAPER TEST #%d closed" % tid
         self.send("%s: %s %s at %.2f\nResult: %+.2fR (%s)\n"
+                  "Rule: %s\n"
                   "Score so far: %d/%d calls, %d wins, PF %.2f, total %+.1fR%s"
-                  % (head, side, why, exit_px, r, result, n, GOAL, w, pf, tot, verdict))
+                  % (head, side, why, exit_px, r, result, NAMES.get(rule, rule),
+                     n, GOAL, w, pf, tot, verdict))
 
-    def _scan(self, price, now):
+    def _scan(self, price, now, free=RULES):
         # one look per hour, 2 min after the hour so the closed bar is published
         t = time.time()
         key = int(t - 120) // 3600
@@ -204,36 +262,50 @@ class PaperTest:
         if time.time() - self.daily_at > 6 * 3600:
             self.daily, self.daily_at = self._bars("5y", "1d"), time.time()
         self.last_key = key
-        st = check(hourly, self.daily)
-        if st is None:
+        for rule in free:
+            st = (check_tokyo if rule == TOKYO else check)(hourly, self.daily)
+            if st is not None:
+                self._open_trade(rule, st, price, now)
+
+    def _open_trade(self, rule, st, price, now):
+        if self.conn.execute("SELECT 1 FROM paper_trades WHERE bar_ts=? AND rule=?",
+                             (st.bar_ts, rule)).fetchone():
             return
-        if self.conn.execute("SELECT 1 FROM paper_trades WHERE bar_ts=?", (st.bar_ts,)).fetchone():
-            return
+        tokyo = rule == TOKYO
+        target_r = TOKYO_TARGET_R if tokyo else TARGET_R
+        exit_note = ("Exit at market at 12:00 UTC if neither is hit." if tokyo
+                     else "Exit at market after 48h if neither is hit.")
         side = "BUY" if st.direction > 0 else "SELL"
         entry = round(price, 2)
         sl = round(entry - st.direction * st.stop_dist, 2)
-        tp = round(entry + st.direction * TARGET_R * st.stop_dist, 2)
+        tp = round(entry + st.direction * target_r * st.stop_dist, 2)
         cur = self.conn.execute(
             "INSERT INTO paper_trades (rule, opened_ts, bar_ts, direction, entry, sl, tp) "
-            "VALUES (?,?,?,?,?,?,?)", (RULE, now.isoformat(), st.bar_ts, side, entry, sl, tp))
+            "VALUES (?,?,?,?,?,?,?)", (rule, now.isoformat(), st.bar_ts, side, entry, sl, tp))
         self.conn.commit()
         if self.live:
             self.send("STAALWAG GOLD SIGNAL #%d\n%s XAUUSD (spot) at %.2f\n"
                       "SL %.2f (%.0f pips) | TP %.2f (%.0f pips)\n"
-                      "Exit at market after 48h if neither is hit.\n"
-                      "New rule in its live test: call %d of %d, every result posted.\n"
+                      "%s\nRule: %s\n"
+                      "Live test: call %d of %d, every result posted.\n"
                       "Risk: your call. Not financial advice."
                       % (cur.lastrowid, side, entry, sl, abs(entry - sl) / PIP, tp,
-                         abs(tp - entry) / PIP, self._count() + 1, GOAL))
+                         abs(tp - entry) / PIP, exit_note, NAMES[rule], self._count() + 1, GOAL))
             return
         self.send("PAPER TEST #%d - NOT A SIGNAL, do not trade\n"
-                  "Gold (spot) %s at %.2f\nSL %.2f | TP %.2f (3R) | out after 48h\n"
-                  "Rule: 20h breakout + 200h trend + daily trend. Testing to %d calls."
-                  % (cur.lastrowid, side, entry, sl, tp, GOAL))
+                  "Gold (spot) %s at %.2f\nSL %.2f | TP %.2f (%gR)\n%s\n"
+                  "Rule: %s. Testing to %d calls."
+                  % (cur.lastrowid, side, entry, sl, tp, target_r, exit_note, NAMES[rule], GOAL))
 
     def _count(self):
         return self.conn.execute("SELECT COUNT(*) FROM paper_trades WHERE r IS NOT NULL "
-                                 "AND rule=?", (RULE,)).fetchone()[0]
+                                 "AND rule IN (?,?)", RULES).fetchone()[0]
+
+
+def _tokyo_exit(opened_iso):
+    """12:00 UTC on the UTC day the Tokyo trade opened."""
+    o = datetime.fromisoformat(opened_iso).astimezone(timezone.utc)
+    return o.replace(hour=TOKYO_EXIT_H, minute=0, second=0, microsecond=0)
 
 
 def start(conn):
